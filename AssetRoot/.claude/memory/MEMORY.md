@@ -1,0 +1,131 @@
+# Project Memory
+
+## PlayCanvas API References
+- REST API full reference -> ./playcanvas-rest-api.md
+- Editor API reference -> ./playcanvas-editor-api.md
+
+## REST API Quick Reference
+- Base URL: `https://playcanvas.com`
+- Auth: `Authorization: Bearer {token}`
+- Rate limits: Normal 120/min (free), Strict 5/min, Assets 60/min
+- Status: Beta
+
+### Key Endpoints
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | /api/projects/:id/assets | List assets |
+| GET | /api/assets/:id | Get asset |
+| POST | /api/assets | Create asset (multipart) |
+| PUT | /api/assets/:id | Update asset (multipart) |
+| DELETE | /api/assets/:id | Delete asset |
+| GET | /api/assets/:id/file/:filename | Get asset file |
+| POST | /api/apps/download | Download app (Strict) |
+| GET | /api/apps/:id | Get app |
+| GET | /api/projects/:id/app | Get primary app |
+| GET | /api/projects/:id/apps | List project apps |
+| GET | /api/projects/:id/branches | List branches |
+| POST | /api/branches | Create branch |
+| GET | /api/branches/:id/checkpoints | List checkpoints |
+| GET | /api/jobs/:id | Get job status |
+| POST | /api/projects/:id/export | Export project (Strict) |
+| GET | /api/projects/:id/scenes | List scenes |
+
+## Editor API Quick Reference
+- Package: @playcanvas/editor-api (v1.1.28)
+- GitHub repo archived Dec 2025 -> merged into playcanvas/editor
+- API Ref: https://api.playcanvas.com/editor/
+- Access via: browser console (`window.editor`), userscripts, browser extensions
+- UI framework: PCUI
+
+### editor object (実機確認済み)
+Top-level keys: methods, api, observer, history, selection, schema, realtime, settings, messenger, assets, entities, jobs, clipboard
+
+### editor.assets メソッド (実機確認済み)
+- CRUD: get, getUnique, list, listByTag, add, remove, clear, filter, findOne, delete
+- Load: loadAll, loadAllAndSubscribe
+- Upload: upload, defaultUploadCompletedCallback, defaultUploadProgressCallback, defaultUploadErrorCallback
+- Create系 (注意: `create()` は存在しない、型別メソッドを使用):
+  createFolder({name, folder}), createScript, createMaterial, createJson, createHtml,
+  createCss, createText, createShader, createSprite, createBundle,
+  createCubemap, createTemplate, createAnimStateGraph, createI18n
+  ※ folder引数にはアセットオブジェクトを渡す (IDは不可、`editor.assets.get(id)`で取得)
+
+## 動的情報の取得方法
+```bash
+# Project ID
+playwright-cli eval "() => window.config.project.id"
+
+# Branch ID
+playwright-cli eval "() => window.config.self.branch.id"
+
+# Access Token (REST API用)
+playwright-cli eval "() => window.config.accessToken"
+
+# アセットIDを名前で検索
+playwright-cli eval "() => { const a = window.editor.assets.list().find(a => a.get('name') === 'TARGET_NAME'); return a ? a.get('id') : 'not found'; }"
+```
+
+## ファイル操作コマンド例
+
+### REST API PUT（推奨・トークン効率が良い）
+既存ファイルの更新に最適。ファイル内容はバイナリ転送でトークン消費なし。
+```bash
+# 1. 一時ファイルを{local-tmp-dir}に書き出す（Writeツール使用）
+# 2. アップロード
+curl -X PUT \
+  -H "Authorization: Bearer {token}" \
+  -F 'file=@{local-tmp-dir}/updated-file.txt' \
+  "https://playcanvas.com/api/assets/{assetId}"
+# 3. 一時ファイル削除: rm {local-tmp-dir}/updated-file.txt
+```
+
+### Editor API（ブラウザ経由）
+新規作成やブラウザ操作が必要な場合に使用。
+```bash
+# テキストファイル作成 (folder引数はアセットオブジェクト、IDは不可)
+playwright-cli eval "() => { const folder = window.editor.assets.get(FOLDER_ID); window.editor.assets.createText({ name: 'file.md', text: 'content', folder: folder }); return 'done'; }"
+
+# フォルダ作成
+playwright-cli eval "() => { const parent = window.editor.assets.get(PARENT_ID); window.editor.assets.createFolder({ name: 'name', folder: parent }); return 'done'; }"
+
+# 長い内容はbase64で渡す
+B64=$(cat file | base64 -w0)
+playwright-cli eval "() => { const folder = window.editor.assets.get(FOLDER_ID); window.editor.assets.createText({ name: 'file.md', text: atob('$B64'), folder: folder }); return 'done'; }"
+
+# ファイル削除 (配列で渡す)
+playwright-cli eval "() => { const a = window.editor.assets.get(ASSET_ID); window.editor.assets.delete([a]); return 'done'; }"
+```
+
+## スクリプト作成ワークフロー
+REST APIでスクリプトを作成/更新した後、Editor APIでパースが必要。
+**パースが必要なタイミング**: スクリプト新規作成時、attribute パラメータ変更時
+
+### 手順
+1. {local-tmp-dir} にスクリプトファイルを書き出す
+2. REST API `POST /api/assets` で作成 or `PUT /api/assets/:id` で更新
+   - curlのWindows環境では `cygpath -w` でパス変換が必要
+   - フォルダIDは名前から動的に取得する
+3. **Preload を true に設定**（REST APIで作成した直後は `false` になっている）:
+```bash
+playwright-cli eval "() => { const a = window.editor.assets.get(ASSET_ID); a.set('preload', true); return 'done'; }"
+```
+   - `preload: false` だとスクリプトがロードされず、エンティティにアタッチしても赤！エラーになる
+   - スクリプトは基本的に常にPreload有効にすること
+4. Editor APIでパース実行:
+```bash
+playwright-cli eval "() => { const a = window.editor.assets.get(ASSET_ID); return window.editor.assets.parseScriptCallback(a).then(r => JSON.stringify(r)); }"
+```
+- `parseScriptCallback(asset)` → Promise → パース成功時にスクリプト名の配列を返す
+- 内部的に `scripts:parse` を呼び出している
+
+### ESMスクリプトの必須要素
+- `import * as pc from 'playcanvas'` (pc.Vec3の様に参照)
+- `export class ClassName extends Script { ... }`
+- `static scriptName = 'scriptName'` が必須
+
+## REST API PUT 注意事項
+- アップロードするファイル名の拡張子は、既存アセットの `file.filename` と一致させる必要がある
+  - 一致しないと `File extension change not allowed` エラーになる
+- `createText` で作られたアセットは内部的に `.txt` が付く（例: `MEMORY.md` → `MEMORY.md.txt`）
+- `POST /api/assets` で `file=@path` 指定して作ったアセットはそのままの拡張子
+- 更新前に `asset.get('file').filename` で実際のファイル名を確認するのが安全

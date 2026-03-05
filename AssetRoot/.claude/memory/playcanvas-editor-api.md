@@ -1,0 +1,144 @@
+# PlayCanvas Editor API Reference
+
+Status: Beta
+Package: @playcanvas/editor-api (npm, v1.1.28)
+API Reference: https://api.playcanvas.com/editor/
+Developer Guide: https://developer.playcanvas.com/user-manual/editor/editor-api/
+GitHub: playcanvas/editor-api (archived Dec 2025 -> merged into playcanvas/editor)
+
+## Overview
+The Editor API provides programmatic access to the PlayCanvas Editor for automating
+repetitive tasks and extending editor functionality. It can be accessed via browser
+DevTools console, userscripts, or browser extensions.
+
+## Core Classes
+
+### Entity & Entities
+- Scene object manipulation (create, delete, move, reparent)
+- Entity hierarchy management
+- Component access and modification
+
+### Asset & Assets
+- Asset management (list, find, create, delete, upload)
+- **Important:** `editor.assets.create()` does NOT exist. Use type-specific methods instead.
+- Access via `window.editor.assets` in browser console
+
+#### Assets Methods (verified on live editor)
+**Query:** get, getUnique, list, listByTag, filter, findOne, raw
+**Load:** loadAll, loadAllAndSubscribe, getAssetForScript
+**Upload:** upload (+ defaultUploadCompletedCallback, defaultUploadProgressCallback, defaultUploadErrorCallback)
+**CRUD:** add, remove, clear, delete
+**Create (type-specific):**
+- `createFolder({ name, folder })` - create folder (folder = parent asset object, NOT id)
+- `createScript(name)` - create script asset
+- `createMaterial(name)` - create material
+- `createJson(name)` - create JSON asset
+- `createHtml(name)` - create HTML asset
+- `createCss(name)` - create CSS asset
+- `createText(name)` - create text asset
+- `createShader(name)` - create shader asset
+- `createSprite(name)` - create sprite
+- `createBundle(name)` - create bundle
+- `createCubemap(name)` - create cubemap
+- `createTemplate(name)` - create template
+- `createAnimStateGraph(name)` - create anim state graph
+- `createI18n(name)` - create i18n asset
+**Other:** instantiateTemplates, parseScriptCallback
+
+### Selection & SelectionHistory
+- Managing selected items in the editor
+- Selection state tracking and history
+
+### History
+- Undo/Redo functionality
+- Action recording for reversible operations
+
+### Settings
+- Editor configuration access
+- Project and scene settings
+
+### Realtime (RealtimeAsset, RealtimeAssets, RealtimeConnection, RealtimeScene, RealtimeScenes)
+- Real-time collaboration support
+- Synchronization between multiple editors
+
+### Other Classes
+- Clipboard: Copy/paste operations
+- Guid: UUID generation
+- Jobs: Background task management
+- LocalStorage: Persistent local storage
+- Messenger: Inter-component messaging
+- utils: Utility functions
+
+## Supported Asset Types
+animation, audio, binary, bundle, css, cubemap, font, folder, gsplat,
+html, json, material, model, render, script, shader, sprite, template,
+text, texture, textureatlas, wasm
+
+## Supported Component Types
+- UI: Button, Element, LayoutChild, LayoutGroup, ScrollView, Scrollbar
+- Graphics: Camera, Light, Render, Model, Sprite, ParticleSystem, GSplat
+- Physics: RigidBody, Collision
+- Animation: Anim, AnimationComponent
+- Audio: AudioListener, Sound
+- Script: ScriptComponent
+- Other: Screen, Zone
+
+## Usage Patterns
+
+### 1. Browser Console Access
+```javascript
+// Wait for editor to load, then access API
+// Example: find all entities with tag 'red' and disable them
+const entities = editor.entities.list().filter(e => e.get('tags').includes('red'));
+entities.forEach(e => e.set('enabled', false));
+```
+
+### 2. User Scripts (Violentmonkey etc.)
+```javascript
+// ==UserScript==
+// @name         PlayCanvas Editor Extension
+// @match        https://playcanvas.com/editor/*
+// ==/UserScript==
+
+(function() {
+    // Wait for editor API to be available
+    const interval = setInterval(() => {
+        if (typeof editor !== 'undefined') {
+            clearInterval(interval);
+            initExtension();
+        }
+    }, 100);
+
+    function initExtension() {
+        // Add custom functionality here
+        // Use PCUI for consistent UI elements
+    }
+})();
+```
+
+### 3. Custom UI with PCUI
+The editor uses PCUI framework. Custom extensions can use the same framework
+for visual consistency. PCUI docs: https://playcanvas.github.io/pcui/
+
+## Playwright-CLI でのEditor API操作
+```bash
+# ブラウザ起動 (headed mode でログイン可能)
+playwright-cli --headed open {mai}-scene-url
+
+# Editor API 実行 (eval コマンド)
+# 注意: createFolder等のfolderパラメータにはアセットオブジェクトを渡す (IDは不可)
+playwright-cli eval "() => { const parent = window.editor.assets.get(PARENT_ID); window.editor.assets.createFolder({ name: 'MyFolder', folder: parent }); return 'done'; }"
+
+# editor オブジェクト調査
+playwright-cli eval "() => JSON.stringify(Object.keys(window.editor))"
+playwright-cli eval "() => JSON.stringify(Object.getOwnPropertyNames(Object.getPrototypeOf(window.editor.assets)))"
+```
+
+## Important Notes
+- Always wait for editor to fully load before accessing API
+- The API is beta - while significant changes are unlikely, stability is not guaranteed
+- Editor API operates client-side (in browser), unlike REST API which is server-side
+- `editor.assets.create()` は存在しない → 個別メソッド (`createFolder`, `createScript` 等) を使用
+- For automation of build/deploy tasks, use REST API instead
+- For in-editor manipulation and UI extension, use Editor API
+- playwright-cli の `eval` でJSを実行可能（`evaluate` は不正コマンド）
