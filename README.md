@@ -1,0 +1,1 @@
+# PlayCanvasEditor_ClaudeCodeRules
