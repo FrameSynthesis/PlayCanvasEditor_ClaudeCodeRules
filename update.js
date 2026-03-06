@@ -57,6 +57,23 @@
         return fullPath.slice(ROOT.length + 1);
     }
 
+    // 重複フォルダがある場合、子アセットを持つものを優先して返す
+    function findBestFolder(name, parentId) {
+        const candidates = editor.assets.list().filter(a =>
+            a.get('name') === name &&
+            a.get('type') === 'folder' &&
+            String(a.get('parent') || '') === String(parentId || '')
+        );
+        if (candidates.length <= 1) return candidates[0] || null;
+        for (const c of candidates) {
+            const hasChildren = editor.assets.list().some(a =>
+                a.get('parent') === c.get('id')
+            );
+            if (hasChildren) return c;
+        }
+        return candidates[0];
+    }
+
     async function fetchGitHub(path) {
         const url = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/${path}`;
         const resp = await fetch(url);
@@ -114,11 +131,7 @@
             const parentRel = parts.slice(0, -1).join('/');
             const parentId = parentRel ? folderIds[parentRel] : null;
 
-            const existing = editor.assets.list().find(a =>
-                a.get('name') === name &&
-                a.get('type') === 'folder' &&
-                String(a.get('parent') || '') === String(parentId || '')
-            );
+            const existing = findBestFolder(name, parentId);
             if (existing) {
                 folderIds[r] = existing.get('id');
                 console.log(`[update] = folder: ${r}`);
@@ -140,18 +153,11 @@
             const created = await new Promise((resolve, reject) => {
                 const start = Date.now();
                 const check = () => {
-                    let found = editor.assets.list().find(a =>
+                    const found = editor.assets.list().find(a =>
                         a.get('name') === name &&
                         a.get('type') === 'folder' &&
                         String(a.get('parent') || '') === String(parentId || '')
                     );
-                    if (!found) {
-                        found = editor.assets.list().find(a =>
-                            a.get('name') === name &&
-                            a.get('type') === 'folder' &&
-                            a.get('parent') == null
-                        );
-                    }
                     if (found) return resolve(found);
                     if (Date.now() - start > 30000) return reject(new Error(`Timeout: folder ${r}`));
                     setTimeout(check, 300);
@@ -185,10 +191,14 @@
         }
 
         // 既存アセットを検索（.md.txt / .md どちらで作られていても検出）
-        let existing = editor.assets.list().find(a =>
+        // 重複がある場合、ファイルを持つものを優先
+        const fileCandidates = editor.assets.list().filter(a =>
             (a.get('name') === assetName || a.get('name') === fileName) &&
             String(a.get('parent') || '') === String(parentId || '')
         );
+        let existing = fileCandidates.length <= 1
+            ? fileCandidates[0] || null
+            : fileCandidates.find(a => a.get('file')) || fileCandidates[0];
 
         // --- CLAUDE.md: マーカーで分割して共通部分のみ更新 ---
         const isClaude = (fileName === 'CLAUDE.md.txt' && !parentRel);
