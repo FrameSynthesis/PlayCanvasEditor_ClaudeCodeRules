@@ -76,7 +76,6 @@ curl -X PUT \
   -H "Authorization: Bearer {token}" \
   -F 'file=@{local-tmp-dir}/updated-file.txt' \
   "https://playcanvas.com/api/assets/{assetId}"
-# 3. 一時ファイル削除: rm {local-tmp-dir}/updated-file.txt
 ```
 
 ### Editor API（ブラウザ経由）
@@ -129,3 +128,15 @@ playwright-cli eval "() => { const a = window.editor.assets.get(ASSET_ID); retur
 - `createText` で作られたアセットは内部的に `.txt` が付く（例: `MEMORY.md` → `MEMORY.md.txt`）
 - `POST /api/assets` で `file=@path` 指定して作ったアセットはそのままの拡張子
 - 更新前に `asset.get('file').filename` で実際のファイル名を確認するのが安全
+
+## テキストアセット作成・更新の注意事項
+- **REST API POST でテキストファイル(.md等)を作成すると Binary 扱いになる** → `createText` を使うこと
+- `createText` で base64 経由で日本語を渡す場合、`atob()` は UTF-8 非対応のため文字化けする
+  - 正しいデコード: `new TextDecoder().decode(Uint8Array.from(atob(b64), c => c.charCodeAt(0)))`
+- テキストアセットの REST API PUT 更新はリアルタイム同期と競合して内容が重複する場合がある
+  - 対策: Code Editor タブが開いている場合は閉じてからアップロードする
+
+## playwright-cli セッション管理ルール
+- **既存セッションを確認してから操作する**: `playwright-cli list` で既存セッションを確認し、認証済みセッションを誤って閉じない
+- `close-all` や `close` は既存の認証済みセッションを破壊するため、実行前に必ず確認する
+- 新しいセッションを開く前に、既存セッションのタブ一覧 (`tab-list`) を確認する
