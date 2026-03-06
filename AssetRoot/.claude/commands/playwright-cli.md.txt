@@ -31,8 +31,9 @@ playwright-cli click <ref>             # perform click
 playwright-cli fill <ref> <text>       # fill text
 playwright-cli type <text>             # type text
 playwright-cli snapshot                # capture page snapshot
-playwright-cli screenshot [ref]        # take screenshot
 \`\`\`
+
+playwright-cli screenshot [ref]で画像としてキャプチャ出来るが、APIエラーでチャットが継続不可になるエラーがあるため使用不可。代わりにsnapshotを使うこと。
 
 ### Sessions
 \`\`\`bash
