@@ -30,6 +30,14 @@
 | POST | /api/projects/:id/export | Export project (Strict) |
 | GET | /api/projects/:id/scenes | List scenes |
 
+## アセット階層構造 (重要)
+- **`parent` プロパティは常に `null`** — フォルダ階層の判定には使えない
+- **`path` プロパティ（祖先フォルダIDの配列）** が実際の階層を表す
+  - `path=[]` → ルート直下
+  - `path=[A]` → フォルダAの子
+  - `path=[A,B]` → フォルダBの子（BはAの中）
+- 親フォルダIDの取得: `const p = asset.get('path') || []; const parentId = p.length > 0 ? p[p.length-1] : null;`
+
 ## Editor API Quick Reference
 - Package: @playcanvas/editor-api (v1.1.28)
 - GitHub repo archived Dec 2025 -> merged into playcanvas/editor
