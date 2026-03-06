@@ -9,7 +9,7 @@ local-tmp-dir: C:\tmp
 
 ### ファイル管理
 
-- `Core`, `Plugins`, `Scripts/Integrations`, `Scripts/Utils` 階下のファイルはパッケージスクリプトのため、変更を加えない。
+- `Core` 配下のファイルはパッケージスクリプトのため、変更を加えない。
 
 ### 命名規則
 
