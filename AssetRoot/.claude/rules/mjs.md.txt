@@ -37,3 +37,36 @@ export class BHCamelCase extends Script {
  */
 propertyName = defaultValue;
 ```
+
+## フォールバック禁止（対象: 重要オブジェクトの解決）
+
+- player, camera 等の**動作に不可欠なオブジェクトが取得できない場合、別の名前・別のパスで探しに行くフォールバックを使わない**。バグを隠す原因になる。
+- 取得できなかった場合は早期リターンまたはエラーログで明示的に失敗させること。
+- 以下は禁止対象外:
+  - UI表示用のデフォルト値（`|| ''`, `|| 0`, `?? defaultValue`）
+  - API互換のためのコンポーネント切り替え（`render || model`）
+  - 遅延解決で `null` を返し、後続で明示的にチェックするパターン
+
+```javascript
+// NG: 別の名前で探しに行くフォールバック（失敗原因を隠す）
+if (!cam) cam = this.app.root.findByName('MainCamera') || this.app.root.findByName('Camera');
+
+// NG: 重要オブジェクトへのフォールバック
+const pos = this._player?.getPosition() || this._camera?.getPosition() || new Vec3(0, 0, 0);
+
+// OK: 明示的に失敗
+if (!this._player) {
+    logger.error('method', 'player not resolved');
+    return;
+}
+const pos = this._player.getPosition();
+
+// OK: UI表示用デフォルト値
+const name = this.profile.displayName || 'Unknown';
+
+// OK: API互換
+const render = this.entity.render || this.entity.model;
+
+// OK: 遅延解決 → null（後続でnullチェックする前提）
+this._client = this.matchEntity?.script?.CORE_Match?.client || null;
+```
