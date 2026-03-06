@@ -69,12 +69,14 @@ playwright-cli eval "() => { const a = window.editor.assets.list().find(a => a.g
 
 ### REST API PUT（推奨・トークン効率が良い）
 既存ファイルの更新に最適。ファイル内容はバイナリ転送でトークン消費なし。
+**必ず`branchId`を指定すること。** 省略するとデフォルトブランチに書き込まれ、作業ブランチに反映されない。
 ```bash
 # 1. 一時ファイルを{local-tmp-dir}に書き出す（Writeツール使用）
-# 2. アップロード
+# 2. アップロード（branchId必須）
 curl -X PUT \
   -H "Authorization: Bearer {token}" \
   -F 'file=@{local-tmp-dir}/updated-file.txt' \
+  -F 'branchId={branchId}' \
   "https://playcanvas.com/api/assets/{assetId}"
 ```
 
@@ -123,6 +125,7 @@ playwright-cli eval "() => { const a = window.editor.assets.get(ASSET_ID); retur
 - `static scriptName = 'scriptName'` が必須
 
 ## REST API PUT 注意事項
+- **`branchId` を必ず指定する** — 省略するとデフォルトブランチ（main等）に書き込まれ、作業ブランチのEditorやVSCode拡張に反映されない
 - アップロードするファイル名の拡張子は、既存アセットの `file.filename` と一致させる必要がある
   - 一致しないと `File extension change not allowed` エラーになる
 - `createText` で作られたアセットは内部的に `.txt` が付く（例: `MEMORY.md` → `MEMORY.md.txt`）
