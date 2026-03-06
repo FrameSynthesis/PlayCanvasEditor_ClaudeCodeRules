@@ -34,6 +34,13 @@
         return fullPath.slice(ROOT.length + 1);
     }
 
+    // pathプロパティ（祖先フォルダIDの配列）の末尾要素でparentを判定する
+    // path=[] → ルート, path=[A] → Aの子, path=[A,B] → Bの子
+    function getParentFromPath(asset) {
+        const p = asset.get('path') || [];
+        return p.length > 0 ? p[p.length - 1] : null;
+    }
+
     // --- GitHub Tree 取得 ---
     console.log('[install] Fetching GitHub tree...');
     const treeResp = await fetch(
@@ -74,11 +81,11 @@
             const parentRel = parts.slice(0, -1).join('/');
             const parentId = parentRel ? folderIds[parentRel] : null;
 
-            // 既存チェック
+            // 既存チェック (path ベース)
             const existing = editor.assets.list().find(a =>
                 a.get('name') === name &&
                 a.get('type') === 'folder' &&
-                String(a.get('parent') || '') === String(parentId || '')
+                getParentFromPath(a) === parentId
             );
             if (existing) {
                 folderIds[r] = existing.get('id');
@@ -101,24 +108,14 @@
         await delay(3000);
 
         for (const { r, name, parentId } of toCreate) {
-            // parentId の有無に関わらず、名前とタイプで探す（parent が null の場合も許容）
             const created = await new Promise((resolve, reject) => {
                 const start = Date.now();
                 const check = () => {
-                    // まず正しい parent で探す
-                    let found = editor.assets.list().find(a =>
+                    const found = editor.assets.list().find(a =>
                         a.get('name') === name &&
                         a.get('type') === 'folder' &&
-                        String(a.get('parent') || '') === String(parentId || '')
+                        getParentFromPath(a) === parentId
                     );
-                    // なければ root (parent=null) で探す（createFolder が parent を無視した場合）
-                    if (!found) {
-                        found = editor.assets.list().find(a =>
-                            a.get('name') === name &&
-                            a.get('type') === 'folder' &&
-                            a.get('parent') == null
-                        );
-                    }
                     if (found) return resolve(found);
                     if (Date.now() - start > 30000) return reject(new Error(`Timeout: folder ${r}`));
                     setTimeout(check, 300);
@@ -127,7 +124,7 @@
             });
 
             folderIds[r] = created.get('id');
-            console.log(`[install] + folder: ${r} (id=${created.get('id')}, parent=${created.get('parent')})`);
+            console.log(`[install] + folder: ${r} (id=${created.get('id')})`);
         }
     }
 
@@ -150,10 +147,10 @@
             blobName = fileName;               // .md.txt のまま (.txt末尾 → text型)
         }
 
-        // 既存チェック（name が .md.txt と .md のどちらで作られていても検出）
+        // 既存チェック (path ベース)
         const existing = editor.assets.list().find(a =>
             (a.get('name') === assetName || a.get('name') === fileName) &&
-            String(a.get('parent') || '') === String(parentId || '')
+            getParentFromPath(a) === parentId
         );
         if (existing) {
             console.log(`[install] = file: ${r} (id=${existing.get('id')})`);
@@ -181,7 +178,7 @@
 
         try {
             const created = await apiPost('/assets', formData);
-            console.log(`[install] + file: ${r} (id=${created.id}, parent=${created.parent})`);
+            console.log(`[install] + file: ${r} (id=${created.id})`);
         } catch (e) {
             console.error(`[install] x failed: ${r}`, e.message);
         }

@@ -57,21 +57,40 @@
         return fullPath.slice(ROOT.length + 1);
     }
 
+    // pathプロパティ（祖先フォルダIDの配列）の末尾要素でparentを判定する
+    // path=[] → ルート, path=[A] → Aの子, path=[A,B] → Bの子
+    function getParentFromPath(asset) {
+        const p = asset.get('path') || [];
+        return p.length > 0 ? p[p.length - 1] : null;
+    }
+
     // 重複フォルダがある場合、子アセットを持つものを優先して返す
     function findBestFolder(name, parentId) {
         const candidates = editor.assets.list().filter(a =>
             a.get('name') === name &&
             a.get('type') === 'folder' &&
-            String(a.get('parent') || '') === String(parentId || '')
+            getParentFromPath(a) === parentId
         );
         if (candidates.length <= 1) return candidates[0] || null;
         for (const c of candidates) {
-            const hasChildren = editor.assets.list().some(a =>
-                a.get('parent') === c.get('id')
-            );
+            const cid = c.get('id');
+            const hasChildren = editor.assets.list().some(a => {
+                const p = a.get('path') || [];
+                return p.includes(cid);
+            });
             if (hasChildren) return c;
         }
         return candidates[0];
+    }
+
+    // parentIdを持つファイルアセットを検索（重複時はfileを持つものを優先）
+    function findBestFile(names, parentId) {
+        const candidates = editor.assets.list().filter(a =>
+            names.includes(a.get('name')) &&
+            getParentFromPath(a) === parentId
+        );
+        if (candidates.length <= 1) return candidates[0] || null;
+        return candidates.find(a => a.get('file')) || candidates[0];
     }
 
     async function fetchGitHub(path) {
@@ -156,7 +175,7 @@
                     const found = editor.assets.list().find(a =>
                         a.get('name') === name &&
                         a.get('type') === 'folder' &&
-                        String(a.get('parent') || '') === String(parentId || '')
+                        getParentFromPath(a) === parentId
                     );
                     if (found) return resolve(found);
                     if (Date.now() - start > 30000) return reject(new Error(`Timeout: folder ${r}`));
@@ -191,14 +210,7 @@
         }
 
         // 既存アセットを検索（.md.txt / .md どちらで作られていても検出）
-        // 重複がある場合、ファイルを持つものを優先
-        const fileCandidates = editor.assets.list().filter(a =>
-            (a.get('name') === assetName || a.get('name') === fileName) &&
-            String(a.get('parent') || '') === String(parentId || '')
-        );
-        let existing = fileCandidates.length <= 1
-            ? fileCandidates[0] || null
-            : fileCandidates.find(a => a.get('file')) || fileCandidates[0];
+        let existing = findBestFile([assetName, fileName], parentId);
 
         // --- CLAUDE.md: マーカーで分割して共通部分のみ更新 ---
         const isClaude = (fileName === 'CLAUDE.md.txt' && !parentRel);
