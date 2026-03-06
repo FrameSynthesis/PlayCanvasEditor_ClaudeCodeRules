@@ -16,7 +16,7 @@ local-tmp-dir: C:\tmp
 ファイル名・スクリプト名は `[接頭辞]_camelCase`。スクリプトは基本的にmjsを用いる。
 接頭辞: `BH_` Entity挙動 / `UI_` UI / `SH_` シェーダー / `EF_` エフェクト / `PP_` ポストプロセス
 
-
+<!-- TEMPLATE_BOUNDARY -->
 ## このファイルについて
 .claude/ 配下 および ここより下のCLAUDE.md はPlayCanvas Editor汎用の内容のみ記載する。
 他プロジェクトにそのままコピーして再利用可能にすること。

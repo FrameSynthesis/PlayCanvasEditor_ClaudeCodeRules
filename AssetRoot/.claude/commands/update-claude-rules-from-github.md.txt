@@ -1,0 +1,21 @@
+---
+description: GitHubリポジトリからCLAUDE.mdと.claude/配下を最新版に更新する
+allowed-tools: Bash
+---
+
+# update-claude-rules-from-github
+
+PlayCanvas Editorが開いている状態で実行すること。
+開いていなければ /open-playcanvas-editor を先に実行する。
+
+CLAUDE.md の `<!-- TEMPLATE_BOUNDARY -->` より上（プロジェクト固有セクション）は保持され、
+それ以降の共通テンプレート部分と .claude/ 配下の全ファイルがリポジトリから更新される。
+
+## 手順
+
+```bash
+playwright-cli eval "$(curl -sL https://raw.githubusercontent.com/FrameSynthesis/PlayCanvasEditor_ClaudeCodeRules/main/update.js)"
+```
+
+実行結果のログを確認し、エラーがあればユーザーに報告する。
+タイムアウトした場合はユーザーにブラウザコンソール(F12)への手動ペーストを案内する。
