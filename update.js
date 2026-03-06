@@ -176,12 +176,17 @@
         // GitHub からコンテンツ取得
         const remoteContent = await fetchGitHub(f.path);
 
-        // 既存アセットを検索（REST API POST で作った名前、または createText で作った名前）
-        const assetName = fileName;
-        const assetNameAlt = /\.\w+\.txt$/.test(fileName) ? fileName.slice(0, -4) : null;
+        // アセット名を決定 (.md.txt → .md)
+        let assetName = fileName;
+        let blobName = fileName;
+        if (/\.\w+\.txt$/.test(fileName)) {
+            assetName = fileName.slice(0, -4);
+            blobName = fileName;
+        }
 
+        // 既存アセットを検索（.md.txt / .md どちらで作られていても検出）
         let existing = editor.assets.list().find(a =>
-            (a.get('name') === assetName || (assetNameAlt && a.get('name') === assetNameAlt)) &&
+            (a.get('name') === assetName || a.get('name') === fileName) &&
             String(a.get('parent') || '') === String(parentId || '')
         );
 
@@ -245,7 +250,7 @@
             formData.append('branchId', branchId);
             if (parentId != null) formData.append('parent', parentId);
             formData.append('preload', 'true');
-            formData.append('file', new Blob([remoteContent], { type: mime }), fileName);
+            formData.append('file', new Blob([remoteContent], { type: mime }), blobName);
 
             try {
                 await apiPost(formData);

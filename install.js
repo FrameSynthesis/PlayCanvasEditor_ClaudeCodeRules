@@ -140,11 +140,19 @@
         const parentRel = parts.slice(0, -1).join('/');
         const parentId = parentRel ? folderIds[parentRel] : null;
 
-        const assetName = fileName;
+        // アセット名とblob ファイル名を決定
+        // .md.txt → name: 'CLAUDE.md', blob: 'CLAUDE.md.txt' (text型 + 正しいローカル名)
+        // .json   → name: 'settings.json', blob: 'settings.json' (json型)
+        let assetName = fileName;
+        let blobName = fileName;
+        if (/\.\w+\.txt$/.test(fileName)) {
+            assetName = fileName.slice(0, -4); // .md.txt → .md
+            blobName = fileName;               // .md.txt のまま (.txt末尾 → text型)
+        }
 
-        // 既存チェック
+        // 既存チェック（name が .md.txt と .md のどちらで作られていても検出）
         const existing = editor.assets.list().find(a =>
-            a.get('name') === assetName &&
+            (a.get('name') === assetName || a.get('name') === fileName) &&
             String(a.get('parent') || '') === String(parentId || '')
         );
         if (existing) {
@@ -161,7 +169,7 @@
         }
         const content = await resp.text();
 
-        // REST API POST でアセット作成（parent が確実に設定される）
+        // REST API POST でアセット作成
         const mime = fileName.endsWith('.json') ? 'application/json' : 'text/plain';
         const formData = new FormData();
         formData.append('name', assetName);
@@ -169,7 +177,7 @@
         formData.append('branchId', branchId);
         if (parentId != null) formData.append('parent', parentId);
         formData.append('preload', 'true');
-        formData.append('file', new Blob([content], { type: mime }), fileName);
+        formData.append('file', new Blob([content], { type: mime }), blobName);
 
         try {
             const created = await apiPost('/assets', formData);
