@@ -1,61 +1,49 @@
 # PlayCanvas Editor × Claude Code 設定テンプレート
 
-PlayCanvas EditorプロジェクトでClaude Codeを活用するための設定ファイル一式です。
-
-VSCodeのPlayCanvas拡張によるローカル同期環境での使用を想定しています。
-
-## 概要
-
-PlayCanvas Editorはクラウドベースの開発環境であり、同期されたローカルファイルへの書き込みが安定しない場合があります。本テンプレートは、Claude CodeがEditor APIやREST APIを経由して安全にファイル操作を行えるよう、ルール・APIリファレンス・コマンドを整備したものです。
+PlayCanvas Editor プロジェクトで Claude Code を安全に運用するためのルール・メモリ・コマンド一式です。
+VSCode PlayCanvas 拡張によるローカル同期環境を前提とし、ファイル操作は全て Editor API / REST API 経由で行うルールを定めています。
 
 ## 導入手順
 
 ### 前提条件
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) がインストール済み
-- VSCode + [PlayCanvas拡張](https://marketplace.visualstudio.com/items?itemName=playcanvas.playcanvas) がセットアップ済み
-- [playwright-cli](https://www.npmjs.com/package/playwright-cli) がインストール済み
 
-### インストール
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) がインストール済み
+- VSCode + [PlayCanvas 拡張](https://marketplace.visualstudio.com/items?itemName=playcanvas.playcanvas) がセットアップ済み
+- [playwright-cli](https://www.npmjs.com/package/@anthropic-ai/playwright-cli) がインストール済み
+
+### 新規プロジェクトへのインストール
 
 1. PlayCanvas Editor でプロジェクトを開く
 2. 開発者コンソールを開く（F12 → Console タブ）
 3. [install.js](https://raw.githubusercontent.com/FrameSynthesis/PlayCanvasEditor_ClaudeCodeRules/main/install.js) の内容を全てコピーしてコンソールに貼り付け、実行する
 4. `[install] Done!` と表示されたら完了
 
-これにより `CLAUDE.md` および `.claude/` 配下のルールファイル・メモリ・コマンドが自動的にプロジェクトに作成されます。
+これにより `CLAUDE.md` および `.claude/` 配下の全ファイルがプロジェクトに作成されます。
 
 ### インストール後の設定
 
-`CLAUDE.md` 先頭のプロジェクト固有セクションを編集し、以下を設定してください：
+`CLAUDE.md` 先頭の「プロジェクト固有の情報・ルール」セクションを編集してください：
 
 - `main-scene-url`: プロジェクトのメインシーン URL
 - `local-tmp-dir`: 一時ファイル置き場のパス
-- その他プロジェクト固有のルール
+- その他プロジェクト固有のルール（変更禁止ファイル、命名規則等）
 
-## 主な機能
+### ルールの更新
 
-### ファイル操作の安全性
+リポジトリのテンプレートが更新された場合、Claude Code から以下のコマンドで最新版に更新できます：
+```
+/update-claude-rules-from-github
+```
 
-CLAUDE.md のルールにより、Claude Codeはローカルファイルへの直接書き込み（Write, Edit等）を行わず、必ずREST APIまたはEditor API経由でファイルを操作します。
+`CLAUDE.md` の `<!-- TEMPLATE_BOUNDARY -->` より上のプロジェクト固有セクションは保持され、共通テンプレート部分と `.claude/` 配下のみが更新されます。
 
-### APIリファレンス内蔵
+## 注意事項
 
-.claude/memory/ 配下にPlayCanvas REST API・Editor APIのリファレンスを収録しています。Claude Codeはこれらを参照しながら、アセットの作成・更新・削除やスクリプトのパースなどを実行します。
-
-### コーディング規約の自動適用
-
-.claude/rules/ 配下の規約ファイルにより、PlayCanvasスクリプト（.js / .mjs）やシェーダーを記述する際に命名規則・属性定義・コメントスタイルが自動的に適用されます。
-
-### Playwrightによるブラウザ操作
-
-/open-playcanvas-editor コマンドでPlayCanvas Editorをブラウザで開き、/playwright-cli コマンドでEditor APIの実行やスナップショット取得などのブラウザ操作を行えます。
+- 同名アセットが既に存在する場合、install.js はスキップし、update.js は上書きします
+- フォルダ作成には Editor 内部の同期待ちが発生するため、初回インストールは数十秒かかる場合があります
+- `CLAUDE.md` に `<!-- TEMPLATE_BOUNDARY -->` マーカーがない場合、更新コマンドはエラーで停止します（プロジェクト固有セクションを保護するため）
 
 ## カスタマイズ
 
-### プロジェクト固有ルールの追加
-
-CLAUDE.md の「プロジェクト固有の情報・ルール」セクションにプロジェクト固有の設定を記述してください。汎用ルール部分（## このファイルについて 以降）は変更せずにそのまま使用できます。
-
-### rules の追加・変更
-
-.claude/rules/ にMarkdownファイルを追加すると、Claude Codeが自動的に認識します。プロジェクト固有の規約がある場合はここに追加してください。
+- `CLAUDE.md` の `<!-- TEMPLATE_BOUNDARY -->` より上に、プロジェクト固有のルールを自由に追加できます
+- `.claude/rules/` に追加の `.md` ファイルを置くと、Claude Code が自動的に認識します
