@@ -5,6 +5,10 @@ allowed-tools: Bash
 
 # bulk-asset-settings
 
+## ARGUMENTS: 適用するルール番号（省略可）
+
+例: `/bulk-asset-settings 1` → `#1` のルールのみ適用。省略時は全ルールを順に適用する。
+
 対象のフォルダ配下またはファイルに対し、Editor API経由で一括設定を適用する。
 PlayCanvas Editorがブラウザで開いている状態で実行すること。
 
@@ -81,15 +85,16 @@ TEMPLATE_BOUNDARY以下にYAML形式でルールを記述する。
 
 ## 実行手順
 
-1. TEMPLATE_BOUNDARY以下のYAMLルールをパースする
-2. 各ルールについて:
+1. TEMPLATE_BOUNDARY以下のYAMLルールをパースする（各ルールは `#N` コメントで番号付けされている）
+2. ARGUMENTS が指定されている場合、該当番号のルールのみを対象とする。省略時は全ルールを対象とする
+3. 対象ルールについて順番に以下を実行する:
    a. `target` を解決する（フォルダ or ファイル）
    b. フォルダの場合: 配下の全アセットを `path` プロパティで取得
    c. ファイルの場合: 該当アセット単体を対象とする
    d. `type-filter` があればアセットタイプで絞り込み
    e. `name-filter` があれば正規表現でアセット名を絞り込み
-   f. 対象アセット一覧と適用設定をユーザーに表示し、確認を取る
-   g. 確認後、各アセットに `asset.set()` で設定を適用
+   f. 各アセットに `asset.set()` で設定を適用
+   g. テクスチャ圧縮設定（`basis`, `dxt`, `etc1`, `etc2`, `pvr`, `normals`, `quality`）を変更した場合 → 対象テクスチャを選択して COMPRESS BASIS ボタンをクリック（後述）
 
 ### パスの解決方法
 
@@ -144,27 +149,27 @@ playwright-cli eval "var ids = [ID1,ID2,ID3]; ids.forEach(function(id) { var a =
 
 50件を超える場合は複数バッチに分けて実行する。
 
-### 確認表示のフォーマット
+### テクスチャ圧縮の実行（COMPRESS BASIS）
 
-適用前に以下の形式でユーザーに確認する:
+テクスチャ圧縮設定（`basis`, `dxt`, `etc1`, `etc2`, `pvr`, `normals`, `quality`）を変更したルールがある場合、設定適用後に圧縮を実行する。
 
+1. 対象テクスチャを Editor API で選択する
+2. COMPRESS BASIS ボタンをクリックする
+
+```bash
+# 1. 対象テクスチャを選択
+playwright-cli eval "() => { var ids = [ID1,ID2,ID3]; var assets = ids.map(function(id) { return window.editor.assets.get(id); }); window.editor.selection.set(assets, {type: 'asset'}); return 'selected ' + ids.length; }"
+
+# 2. COMPRESS BASIS ボタンをクリック
+playwright-cli eval "() => { var btns = document.querySelectorAll('button.asset-texture-inspector-compress-button'); for (var i = 0; i < btns.length; i++) { if (btns[i].textContent.trim() === 'COMPRESS BASIS' && btns[i].className.indexOf('pcui-disabled') === -1) { btns[i].click(); return 'clicked COMPRESS BASIS'; } } return 'no enabled button found'; }"
 ```
-## ルール 1: Assets/Textures/UI
-- type-filter: texture
-- name-filter: (なし)
-- 対象アセット: 42件
-- 設定:
-  - preload = false
-  - exclude = true
-  - anisotropy = 4
 
-適用しますか？
-```
+ボタンが見つからない・disabled の場合はユーザーに報告する。
 
 <!-- TEMPLATE_BOUNDARY -->
 rules:
 
-# Claude設定ファイル
+#1 claude-config
 - target:
     - CLAUDE.md
     - .claude
