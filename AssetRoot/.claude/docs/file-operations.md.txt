@@ -1,0 +1,198 @@
+# PlayCanvas ファイル操作・アップロード リファレンス
+
+## 一時ファイルのルール
+REST API PUTでアップロードする際の一時ファイル置き場は {local-tmp-dir} を使用すること。
+
+## 動的情報の取得
+
+```bash
+# Project ID
+playwright-cli eval "() => window.config.project.id"
+
+# Branch ID
+playwright-cli eval "() => window.config.self.branch.id"
+
+# Access Token (REST API用)
+playwright-cli eval "() => window.config.accessToken"
+
+# アセットIDを名前で検索
+playwright-cli eval "() => { var a = window.editor.assets.list().find(function(a) { return a.get('name') === 'TARGET_NAME'; }); return a ? a.get('id') + '' : 'not found'; }"
+```
+
+### キャッシュ方針
+動的情報は AutoMemory にキャッシュし、毎回の playwright-cli 呼び出しを削減する。
+
+**保存先**: AutoMemory (`MEMORY.md`)
+**フォーマット**: 以下の見出し・キー形式を厳守する。値がない項目は行ごと省略可。
+
+```markdown
+## PlayCanvas キャッシュ
+- projectId: 1234567
+- branchId: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+- accessToken: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+## フォルダID キャッシュ
+- .claude/: 123456
+- .claude/commands/: 123457
+- .claude/docs/: 123458
+- .claude/rules/: 123459
+- Scripts/: 123460
+- Scripts/Behaviors/: 123461
+```
+
+**更新ルール**:
+
+| 値 | 更新タイミング | 再取得トリガー |
+|---|---|---|
+| projectId | ほぼ不変 | — |
+| branchId | チャット開始時・ブランチ切替時 | REST APIエラー時 |
+| accessToken | チャット開始時 | 401エラー時 |
+| folderId | 初回アクセス時に取得・蓄積 | not found時 |
+
+- チャット開始時に playwright-cli セッションがあれば branchId / accessToken を再取得して AutoMemory を更新する。セッションがなければ既存キャッシュを使い、エラー発生時に再取得する。
+- **branchId を更新した際は、ユーザーに以下を必ず通知すること**:
+  1. branchId を更新した旨（旧→新の値）
+  2. 「途中でブランチを切り替えた場合はその旨を伝えてください。伝えないと古い branchId で別ブランチにアップロードされます」
+
+## REST API PUT（既存ファイルの更新）
+
+推奨方法。ファイル内容はバイナリ転送でトークン消費なし。
+
+```bash
+# 1. 一時ファイルを {local-tmp-dir} に書き出す（Writeツール使用）
+# 2. アップロード（branchId必須）
+curl -X PUT \
+  -H "Authorization: Bearer {token}" \
+  -F 'file=@{local-tmp-dir}/{filename}' \
+  -F 'branchId={branchId}' \
+  "https://playcanvas.com/api/assets/{assetId}"
+```
+
+### 注意事項
+- **`branchId` を必ず指定する** — 省略するとデフォルトブランチ（main等）に書き込まれる
+- ファイル名の拡張子は既存アセットの `file.filename` と一致させること（不一致で `File extension change not allowed` エラー）
+- `createText` で作られたアセットは内部的に `.txt` が付く（例: `MEMORY.md` → `MEMORY.md.txt`）
+- `POST /api/assets` で `file=@path` 指定して作ったアセットはそのままの拡張子
+- 更新前に `asset.get('file').filename` で実際のファイル名を確認するのが安全
+
+## REST API POST（新規アセット作成）
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer {token}" \
+  -F 'name={name}' \
+  -F 'projectId={projectId}' \
+  -F 'branchId={branchId}' \
+  -F 'parent={parentFolderId}' \
+  -F 'preload=true' \
+  -F 'file=@{local-tmp-dir}/{filename}' \
+  "https://playcanvas.com/api/assets"
+```
+
+- 対応タイプ: script, html, css, text, shader, json
+- テキストファイル(.md等)をPOSTで作成すると Binary 扱いになる → テキストは `createText` を使うこと
+
+## Editor API（ブラウザ経由の操作）
+
+新規作成やブラウザ操作が必要な場合に使用。
+
+```bash
+# テキストファイル作成 (folder引数はアセットオブジェクト、IDは不可)
+playwright-cli eval "() => { var folder = window.editor.assets.get(FOLDER_ID); window.editor.assets.createText({ name: 'file.md', text: 'content', folder: folder }); return 'done'; }"
+
+# フォルダ作成
+playwright-cli eval "() => { var parent = window.editor.assets.get(PARENT_ID); window.editor.assets.createFolder({ name: 'name', folder: parent }); return 'done'; }"
+
+# 長い内容はbase64で渡す（UTF-8対応デコード必須）
+B64=$(cat file | base64 -w0)
+playwright-cli eval "() => { var folder = window.editor.assets.get(FOLDER_ID); var b64 = '$B64'; var text = new TextDecoder().decode(Uint8Array.from(atob(b64), function(c) { return c.charCodeAt(0); })); window.editor.assets.createText({ name: 'file.md', text: text, folder: folder }); return 'done'; }"
+
+# ファイル削除 (配列で渡す)
+playwright-cli eval "() => { var a = window.editor.assets.get(ASSET_ID); window.editor.assets.delete([a]); return 'done'; }"
+
+# Preload設定
+playwright-cli eval "() => { var a = window.editor.assets.get(ASSET_ID); a.set('preload', true); return 'done'; }"
+```
+
+## スクリプト作成ワークフロー
+
+REST APIでスクリプトを作成/更新した後、Editor APIでパースが必要。
+**パースが必要なタイミング**: スクリプト新規作成時、attribute パラメータ変更時
+
+### 手順
+1. {local-tmp-dir} にスクリプトファイルを書き出す
+2. REST API `POST /api/assets` で作成 or `PUT /api/assets/:id` で更新
+   - curlのWindows環境では `cygpath -w` でパス変換が必要な場合あり
+   - フォルダIDは名前から動的に取得する
+3. **Preload を true に設定**（REST APIで作成した直後は `false`）:
+   ```bash
+   playwright-cli eval "() => { var a = window.editor.assets.get(ASSET_ID); a.set('preload', true); return 'done'; }"
+   ```
+   - `preload: false` だとスクリプトがロードされず、エンティティにアタッチしても赤！エラーになる
+4. Editor APIでパース実行:
+   ```bash
+   playwright-cli eval "() => { var a = window.editor.assets.get(ASSET_ID); return window.editor.assets.parseScriptCallback(a).then(function(r) { return JSON.stringify(r); }); }"
+   ```
+   - `parseScriptCallback(asset)` → Promise → パース成功時にスクリプト名の配列を返す
+
+### ESMスクリプトの必須要素
+- `import * as pc from 'playcanvas'` (pc.Vec3の様に参照)
+- `export class ClassName extends Script { ... }`
+- `static scriptName = 'scriptName'` が必須
+
+## アセット階層構造
+
+- **`parent` プロパティは常に `null`** — フォルダ階層の判定には使えない
+- **`path` プロパティ（祖先フォルダIDの配列）** が実際の階層を表す
+  - `path=[]` → ルート直下
+  - `path=[A]` → フォルダAの子
+  - `path=[A,B]` → フォルダBの子（BはAの中）
+- 親フォルダIDの取得: `path[path.length - 1]` （`path`が空ならルート）
+
+## テキストアセットの注意事項
+
+- REST API PUT 更新はリアルタイム同期と競合して内容が重複する場合がある
+  - 対策: Code Editor タブが開いている場合は閉じてからアップロードする
+- base64 経由で日本語を渡す場合、`atob()` は UTF-8 非対応のため文字化けする
+  - 正しいデコード: `new TextDecoder().decode(Uint8Array.from(atob(b64), function(c) { return c.charCodeAt(0); }))`
+
+## アップロード用シェルスクリプト（効率化）
+
+ファイル名に `{assetId}_{assetName}` を含めることで引数を削減できる。
+
+```bash
+# 使い方: bash {local-tmp-dir}/pc_upload.sh {assetId}_{filename} {branchId}
+# 例: bash {local-tmp-dir}/pc_upload.sh 12345_BH_foo.mjs abc-branch-id
+FILENAME=$1
+BRANCH_ID=$2
+ASSET_ID=$(echo "$FILENAME" | cut -d'_' -f1)
+FILE_PATH="{local-tmp-dir}/pc_upload/$FILENAME"
+SESSION=$(playwright-cli list | grep -m1 'default' | awk '{print $1}')
+TOKEN=$(playwright-cli eval "() => window.config.accessToken")
+UPLOAD_NAME=${FILENAME#*_}
+
+RESPONSE=$(curl -s -w "\n%{http_code}" -X PUT \
+  "https://playcanvas.com/api/assets/$ASSET_ID" \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "branchId=$BRANCH_ID" \
+  -F "file=@$FILE_PATH;filename=$UPLOAD_NAME")
+
+HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+if [ "$HTTP_CODE" = "200" ]; then
+  echo "OK $ASSET_ID $UPLOAD_NAME"
+elif [ "$HTTP_CODE" = "401" ]; then
+  TOKEN=$(playwright-cli eval "() => window.config.accessToken")
+  RESPONSE=$(curl -s -w "\n%{http_code}" -X PUT \
+    "https://playcanvas.com/api/assets/$ASSET_ID" \
+    -H "Authorization: Bearer $TOKEN" \
+    -F "branchId=$BRANCH_ID" \
+    -F "file=@$FILE_PATH;filename=$UPLOAD_NAME")
+  HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+  echo "RETRY $ASSET_ID $HTTP_CODE"
+else
+  echo "FAIL $ASSET_ID $HTTP_CODE"
+fi
+```
+
+<!-- TEMPLATE_BOUNDARY -->
+local-tmp-dir: C:\tmp

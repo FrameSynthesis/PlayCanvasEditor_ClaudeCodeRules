@@ -8,8 +8,9 @@ allowed-tools: Bash
 PlayCanvas Editorが開いている状態で実行すること。
 開いていなければ /open-playcanvas-editor を先に実行する。
 
-CLAUDE.md の `<!-- TEMPLATE_BOUNDARY -->` より上（プロジェクト固有セクション）は保持され、
-それ以降の共通テンプレート部分と .claude/ 配下の全ファイルがリポジトリから更新される。
+`<!-- TEMPLATE_BOUNDARY -->` より上（共通テンプレート部分）がリポジトリから更新され、
+より下（プロジェクト固有セクション）は保持される。この仕組みは CLAUDE.md だけでなく、
+TEMPLATE_BOUNDARY を含む全ファイルに適用される。
 
 ## 手順
 

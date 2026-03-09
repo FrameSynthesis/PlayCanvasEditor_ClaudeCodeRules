@@ -1,8 +1,8 @@
 /**
  * PlayCanvas Editor Console Script
- * GitHub リポジトリから CLAUDE.md の共通テンプレート部分と
- * .claude/ 配下を最新版に更新する。
- * CLAUDE.md の「<!-- TEMPLATE_BOUNDARY -->」より上のプロジェクト固有セクションは保持される。
+ * GitHub リポジトリから CLAUDE.md / .claude/ 配下のルールファイルを最新版に更新する。
+ * TEMPLATE_BOUNDARY を含むファイルは、境界より上（テンプレート部分）のみ更新し、
+ * 境界より下（プロジェクト固有部分）を保持する。
  *
  * 使い方: PlayCanvas Editor の開発者コンソール (F12) にコピペして実行
  */
@@ -212,48 +212,31 @@
         // 既存アセットを検索（.md.txt / .md どちらで作られていても検出）
         let existing = findBestFile([assetName, fileName], parentId);
 
-        // --- CLAUDE.md: マーカーで分割して共通部分のみ更新 ---
-        const isClaude = (fileName === 'CLAUDE.md.txt' && !parentRel);
-
-        if (isClaude && existing) {
-            const currentContent = await fetchAssetContent(existing);
-            if (!currentContent) {
-                console.error(`[update] x could not read current CLAUDE.md`);
-                continue;
-            }
-
-            if (!currentContent.includes(MARKER)) {
-                console.error(`[update] x CLAUDE.md にマーカー「${MARKER}」が見つかりません。手動で追加してください。`);
-                continue;
-            }
-            if (!remoteContent.includes(MARKER)) {
-                console.error(`[update] x リポジトリの CLAUDE.md にマーカーがありません。`);
-                continue;
-            }
-
-            const localParts = currentContent.split(MARKER);
-            const remoteParts = remoteContent.split(MARKER);
-
-            // ローカルの固有部分 + マーカー + リモートの共通部分
-            const merged = localParts[0] + MARKER + remoteParts.slice(1).join(MARKER);
-
-            const fileData = existing.get('file');
-            const existingFilename = fileData?.filename || fileData?.url?.split('/').pop() || fileName;
-            const blob = new Blob([merged], { type: 'text/plain' });
-
-            try {
-                await apiPut(existing.get('id'), blob, existingFilename);
-                console.log(`[update] * CLAUDE.md updated (project-specific preserved)`);
-            } catch (e) {
-                console.error(`[update] x CLAUDE.md update failed:`, e.message);
-            }
-            continue;
-        }
-
-        // --- その他のファイル: 上書き更新 or 新規作成 ---
         if (existing) {
             const fileData = existing.get('file');
             const existingFilename = fileData?.filename || fileData?.url?.split('/').pop() || fileName;
+
+            // TEMPLATE_BOUNDARY がリモート・ローカル両方にあればマージ
+            // 上部=テンプレート(リモートで更新) / 下部=プロジェクト固有(ローカルを保持)
+            if (remoteContent.includes(MARKER)) {
+                const currentContent = await fetchAssetContent(existing);
+                if (currentContent && currentContent.includes(MARKER)) {
+                    const localParts = currentContent.split(MARKER);
+                    const remoteParts = remoteContent.split(MARKER);
+                    const merged = remoteParts[0] + MARKER + localParts.slice(1).join(MARKER);
+                    const blob = new Blob([merged], { type: 'text/plain' });
+
+                    try {
+                        await apiPut(existing.get('id'), blob, existingFilename);
+                        console.log(`[update] * ${r} (template updated, project-specific preserved)`);
+                    } catch (e) {
+                        console.error(`[update] x merge failed: ${r}`, e.message);
+                    }
+                    continue;
+                }
+            }
+
+            // TEMPLATE_BOUNDARY なし → 全体上書き
             const mime = fileName.endsWith('.json') ? 'application/json' : 'text/plain';
             const blob = new Blob([remoteContent], { type: mime });
 
