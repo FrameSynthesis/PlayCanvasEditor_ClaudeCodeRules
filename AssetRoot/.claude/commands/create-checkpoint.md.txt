@@ -1,0 +1,45 @@
+---
+description: PlayCanvasのチェックポイントを作成する（.playwright-cli/を先に削除）
+allowed-tools: Bash
+---
+
+# create-checkpoint
+
+## ARGUMENTS: チェックポイントの説明（省略可）
+
+## 手順
+
+### 1. .playwright-cli/ 内アセット削除
+
+```bash
+playwright-cli eval "() => { const n='.playwright-cli',t=window.config.accessToken,p=window.config.project.id,b=window.config.self.branch.id; const f=window.editor.assets.list().find(a=>a.get('name')===n&&a.get('type')==='folder'); if(f==null)return 'not found: '+n; const fid=f.get('id'); return fetch('/api/projects/'+p+'/assets?parent='+fid+'&branchId='+b+'&limit=200',{headers:{'Authorization':'Bearer '+t}}).then(r=>r.json()).then(data=>{const ids=(data.result||data).filter(a=>a.parent===fid).map(a=>a.id);ids.forEach(id=>{const o=window.editor.assets.get(id);if(o==null)return;window.editor.assets.delete([o]);});return 'deleted:'+ids.length+' from '+n+'/'; }); }"
+```
+
+### 2. チェックポイント名の決定
+
+ARGUMENTS が指定されている場合はそれをそのまま使用し、ステップ3へ進む。
+
+指定がない場合は以下で差分情報を収集し名前を決定する。
+
+直近のチェックポイント一覧:
+```bash
+playwright-cli eval "() => { const t=window.config.accessToken,b=window.config.self.branch.id; return fetch('https://playcanvas.com/api/branches/'+b+'/checkpoints?limit=5',{headers:{'Authorization':'Bearer '+t}}).then(r=>r.json()).then(d=>JSON.stringify(d)); }"
+```
+
+直近の変更アセット:
+```bash
+playwright-cli eval "() => { const t=window.config.accessToken,p=window.config.project.id,b=window.config.self.branch.id; return fetch('/api/projects/'+p+'/assets?branchId='+b+'&limit=15&sort=updatedAt&order=-1',{headers:{'Authorization':'Bearer '+t}}).then(r=>r.json()).then(data=>(Array.isArray(data)?data:(data.result||[])).map(a=>a.modifiedAt+' '+a.name).join('\n')); }"
+```
+
+名前を決定したら AskUserQuestion ツールで確認する:
+- 質問: `チェックポイント名: 「決定した名前」 で作成しますか？`
+- 選択肢: `Yes` / `No` 
+- Yes → ステップ3へ / No → 中止 
+
+### 3. チェックポイント作成
+
+```bash
+playwright-cli eval "() => { const t=window.config.accessToken,p=window.config.project.id,b=window.config.self.branch.id; return fetch('https://playcanvas.com/api/checkpoints',{method:'POST',headers:{'Authorization':'Bearer '+t,'Content-Type':'application/json'},body:JSON.stringify({projectId:p,branchId:b,description:'DESCRIPTION'})}).then(r=>r.json()).then(d=>JSON.stringify(d)); }"
+```
+
+レスポンスの `id` フィールドでチェックポイントIDを確認し、成功を報告する。
