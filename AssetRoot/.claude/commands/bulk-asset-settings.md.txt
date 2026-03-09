@@ -1,0 +1,173 @@
+---
+description: 指定フォルダ配下またはファイルに一括でアセット設定を適用する
+allowed-tools: Bash
+---
+
+# bulk-asset-settings
+
+対象のフォルダ配下またはファイルに対し、Editor API経由で一括設定を適用する。
+PlayCanvas Editorがブラウザで開いている状態で実行すること。
+
+## 記法
+
+TEMPLATE_BOUNDARY以下にYAML形式でルールを記述する。
+
+```yaml
+- target: string | string[]          # 必須。フォルダパスまたはファイルパス（1つ or 複数）
+  type-filter: string                 # 任意。アセットタイプで絞り込み
+  name-filter: string                 # 任意。正規表現でアセット名を絞り込み
+  settings:                           # 必須。適用する設定リスト
+    - flagName                        #   flag = true
+    - ~flagName                       #   flag = false
+    - key=value                       #   数値/文字列の代入
+    - tag=xxx                         #   タグ追加
+    - ~tag=xxx                        #   タグ削除
+```
+
+### target の解決ルール
+
+`target` は `/` 区切りのパスで指定する。解決手順:
+
+1. パスをフォルダとして解決を試みる（ルートから順にフォルダ名を辿る）
+2. フォルダとして見つかった場合 → 配下の全アセットを再帰的に対象とする
+3. フォルダとして見つからなかった場合 → 最後のセグメントをファイル名として扱い、親パスのフォルダ内でアセット名が一致するものを対象とする
+4. 親パスがない場合（例: `CLAUDE.md`）→ ルート直下でアセット名が一致するものを対象とする
+
+例:
+- `Assets/Textures/UI` → フォルダ。配下の全アセットが対象
+- `Assets/Textures/UI/logo.png` → ファイル。そのアセット単体が対象
+- `CLAUDE.md` → ルート直下のファイル。そのアセット単体が対象
+- 複数指定も可:
+  ```yaml
+  target:
+    - Assets/Textures/UI
+    - CLAUDE.md
+  ```
+
+### flag型の記法
+
+| 記法 | 意味 |
+|---|---|
+| `preload` | `true` |
+| `~preload` | `false` |
+
+### 対応する設定キー
+
+| 設定キー | 対象タイプ | 値の型 | 実際のパス |
+|---|---|---|---|
+| **共通** ||||
+| `preload` | all | flag | `preload` |
+| `exclude` | all | flag | `exclude` |
+| `tag=xxx` | all | string | `tags` に追加/削除 |
+| **テクスチャ設定** ||||
+| `addressu=repeat\|clamp\|mirror` | texture | string | `data.addressu` |
+| `addressv=repeat\|clamp\|mirror` | texture | string | `data.addressv` |
+| `minfilter=...` | texture | string | `data.minfilter` |
+| `magfilter=...` | texture | string | `data.magfilter` |
+| `anisotropy=N` | texture | number | `data.anisotropy` |
+| `mipmaps` | texture | flag | `data.mipmaps` |
+| `srgb` | texture | flag | `data.srgb` |
+| `rgbm` | texture | flag | `data.rgbm` |
+| **テクスチャ圧縮** ||||
+| `basis` | texture | flag | `meta.compress.basis` |
+| `dxt` | texture | flag | `meta.compress.dxt` |
+| `etc1` | texture | flag | `meta.compress.etc1` |
+| `etc2` | texture | flag | `meta.compress.etc2` |
+| `pvr` | texture | flag | `meta.compress.pvr` |
+| `normals` | texture | flag | `meta.compress.normals` |
+| `quality=N` | texture | number | `meta.compress.quality` |
+| **キューブマップ** ||||
+| `anisotropy=N` | cubemap | number | `data.anisotropy` |
+
+## 実行手順
+
+1. TEMPLATE_BOUNDARY以下のYAMLルールをパースする
+2. 各ルールについて:
+   a. `target` を解決する（フォルダ or ファイル）
+   b. フォルダの場合: 配下の全アセットを `path` プロパティで取得
+   c. ファイルの場合: 該当アセット単体を対象とする
+   d. `type-filter` があればアセットタイプで絞り込み
+   e. `name-filter` があれば正規表現でアセット名を絞り込み
+   f. 対象アセット一覧と適用設定をユーザーに表示し、確認を取る
+   g. 確認後、各アセットに `asset.set()` で設定を適用
+
+### パスの解決方法
+
+パスは `/` 区切りで指定する（例: `Assets/Textures/UI`）。
+ルートから順にフォルダ名を辿り、各階層のフォルダIDを解決する。
+
+```bash
+# ルートフォルダ一覧取得（path が空配列のフォルダ）
+playwright-cli eval "window.editor.assets.list().filter(function(a) { return a.get('type') === 'folder' && a.get('path').length === 0 }).map(function(a) { return { id: a.get('id'), name: a.get('name') } })"
+
+# 特定フォルダ配下の子フォルダ取得
+playwright-cli eval "window.editor.assets.list().filter(function(a) { return a.get('type') === 'folder' && a.get('path').length > 0 && a.get('path')[a.get('path').length - 1] === PARENT_ID }).map(function(a) { return { id: a.get('id'), name: a.get('name') } })"
+
+# 特定フォルダ配下の全アセット取得（再帰的 = pathにフォルダIDを含む）
+playwright-cli eval "window.editor.assets.list().filter(function(a) { return a.get('path').indexOf(FOLDER_ID) !== -1 }).map(function(a) { return { id: a.get('id'), name: a.get('name'), type: a.get('type') } })"
+
+# ルート直下のアセットをファイル名で検索（path が空配列）
+playwright-cli eval "window.editor.assets.list().filter(function(a) { return a.get('name') === 'FILENAME' && a.get('path').length === 0 }).map(function(a) { return { id: a.get('id'), name: a.get('name'), type: a.get('type') } })"
+
+# 特定フォルダ内のアセットをファイル名で検索
+playwright-cli eval "window.editor.assets.list().filter(function(a) { return a.get('name') === 'FILENAME' && a.get('path').length > 0 && a.get('path')[a.get('path').length - 1] === PARENT_FOLDER_ID }).map(function(a) { return { id: a.get('id'), name: a.get('name'), type: a.get('type') } })"
+```
+
+### 設定の適用方法
+
+```bash
+# 共通プロパティ
+playwright-cli eval "window.editor.assets.get(ASSET_ID).set('preload', true)"
+playwright-cli eval "window.editor.assets.get(ASSET_ID).set('exclude', false)"
+
+# タグ操作
+playwright-cli eval "window.editor.assets.get(ASSET_ID).set('tags', window.editor.assets.get(ASSET_ID).get('tags').concat(['tagName']))"
+playwright-cli eval "window.editor.assets.get(ASSET_ID).set('tags', window.editor.assets.get(ASSET_ID).get('tags').filter(function(t) { return t !== 'tagName' }))"
+
+# data プロパティ（テクスチャ等）
+playwright-cli eval "window.editor.assets.get(ASSET_ID).set('data.anisotropy', 16)"
+playwright-cli eval "window.editor.assets.get(ASSET_ID).set('data.mipmaps', false)"
+playwright-cli eval "window.editor.assets.get(ASSET_ID).set('data.addressu', 'clamp')"
+
+# meta プロパティ（テクスチャ圧縮）
+playwright-cli eval "window.editor.assets.get(ASSET_ID).set('meta.compress.basis', true)"
+```
+
+### 一括適用の効率化
+
+個別に `playwright-cli eval` を呼ぶとレート制限に達するため、1回の eval で複数アセットをまとめて処理する。
+
+```bash
+# 複数アセットに同じ設定を一括適用（最大50件ずつバッチ処理）
+playwright-cli eval "var ids = [ID1,ID2,ID3]; ids.forEach(function(id) { var a = window.editor.assets.get(id); a.set('preload', true); a.set('exclude', false); }); 'applied ' + ids.length + ' assets'"
+```
+
+50件を超える場合は複数バッチに分けて実行する。
+
+### 確認表示のフォーマット
+
+適用前に以下の形式でユーザーに確認する:
+
+```
+## ルール 1: Assets/Textures/UI
+- type-filter: texture
+- name-filter: (なし)
+- 対象アセット: 42件
+- 設定:
+  - preload = false
+  - exclude = true
+  - anisotropy = 4
+
+適用しますか？
+```
+
+<!-- TEMPLATE_BOUNDARY -->
+rules:
+
+# Claude設定ファイル
+- target:
+    - CLAUDE.md
+    - .claude
+  settings:
+    - exclude
+    - ~preload
