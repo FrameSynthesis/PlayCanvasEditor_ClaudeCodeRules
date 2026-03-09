@@ -7,6 +7,15 @@ allowed-tools: Bash
 
 Browser automation CLI tool.
 
+## セッション管理ルール
+- **操作前に `playwright-cli list` で既存セッションを確認する** — 認証済みセッションを誤って閉じない
+- `close-all` や `close` は既存の認証済みセッションを破壊するため、実行前に必ず確認する
+- 新しいセッションを開く前に、既存セッションのタブ一覧 (`tab-list`) を確認する
+
+## 一時ファイルのクリーンアップ
+- playwright-cliはスクリーンショット等の一時ファイルをワーキングディレクトリに生成することがある
+- **使用後に生成された一時ファイル（screenshot-*.png等）があれば都度削除すること**
+
 ## Quick Start
 
 \`\`\`bash
@@ -47,3 +56,95 @@ playwright-cli tracing-start           # start trace recording
 playwright-cli tracing-stop            # stop trace recording
 playwright-cli console [min-level]     # list console messages
 \`\`\`
+
+## eval の注意事項
+
+`eval` は内部的に式を `() => (expr)` でラップして `page.evaluate()` に渡す。この仕組みに起因する制約がある。
+
+### アロー関数の禁止
+
+式の中に `=>` を含めると、ラッパーの `=>` と構文が競合し "not well-serializable" エラーになる。
+**`function()` 構文を使うこと。**
+
+\`\`\`bash
+# NG: アロー関数
+playwright-cli eval "window.editor.assets.list().map(a => a.get('type'))"
+
+# OK: function() 構文
+playwright-cli eval "window.editor.assets.list().map(function(a) { return a.get('type') })"
+\`\`\`
+
+### 非シリアライズ可能な戻り値
+
+PlayCanvasアセットオブジェクト等の循環参照を含むオブジェクトを返すと "Converting circular structure to JSON" や "not well-serializable" になる。
+**カンマ演算子で文字列を返す、またはプリミティブ値のみ返すようにする。**
+
+\`\`\`bash
+# NG: 非シリアライズ可能なオブジェクトが返る
+playwright-cli eval "window.editor.assets.delete([window.editor.assets.get(12345)])"
+
+# OK: カンマ演算子で文字列を返す
+playwright-cli eval "window.editor.assets.delete([window.editor.assets.get(12345)]), 'done'"
+
+# OK: プリミティブ値を返す
+playwright-cli eval "window.editor.assets.get(12345).get('name')"
+\`\`\`
+
+### 大きなデータの受け渡し
+
+長い文字列を eval に直接埋め込むと "not well-serializable" になることがある。
+**`localstorage-set` で事前に格納し、eval 内で `localStorage.getItem()` で読み出す。**
+
+\`\`\`bash
+# 1. localStorageに格納
+playwright-cli localstorage-set "_mydata" "$(base64 -w0 /path/to/file)"
+
+# 2. eval内で読み出し・デコード（UTF-8対応）
+playwright-cli eval "decodeURIComponent(escape(atob(localStorage.getItem('_mydata')))).length"
+
+# 3. window変数に展開してから利用
+playwright-cli eval "window._decoded = decodeURIComponent(escape(atob(localStorage.getItem('_mydata'))))"
+playwright-cli eval "window.editor.assets.createText({ name: 'file.md', text: window._decoded, folder: window.editor.assets.get(FOLDER_ID) }), 'done'"
+\`\`\`
+
+### 複数文の実行
+
+セミコロン区切りの複数文は動作しないことが多い。**単一式にまとめるか、カンマ演算子を使う。**
+中間変数が必要な場合は `window._varName` に格納して複数回の eval に分ける。
+
+## run-code の使い方
+
+`run-code` は渡されたコードを **関数として呼び出す**（`(code)(page)` 相当）。
+そのため **`async function() { ... }` の形式で渡す必要がある。**
+
+### 基本構文
+
+\`\`\`bash
+playwright-cli run-code "async function() { return await page.title() }"
+# → await (async function() { return await page.title() })(page)
+\`\`\`
+
+### eval との使い分け
+
+| やりたいこと | 使うコマンド |
+|---|---|
+| ページ内のJS実行（DOM操作、Editor API等） | `eval` |
+| Playwright API（waitFor*、複数ステップ） | `run-code` |
+
+### eval ではできない run-code のユースケース
+
+\`\`\`bash
+# 条件成立を待つ
+playwright-cli run-code "async function() { await page.waitForFunction(function() { return window.editor !== undefined }, { timeout: 5000 }); return 'ready' }"
+
+# API応答を待ちながら操作
+playwright-cli run-code "async function() { var responsePromise = page.waitForResponse(function(r) { return r.url().includes('/api/assets') }); await page.evaluate(function() { /* trigger something */ }); var response = await responsePromise; return response.status() }"
+
+# 複数ステップを順次実行
+playwright-cli run-code "async function() { var title = await page.title(); var count = await page.evaluate(function() { return window.editor.assets.list().length }); return title + ': ' + count + ' assets' }"
+\`\`\`
+
+### 注意事項
+- **`const`/`let` は使用不可** — `var` を使うこと
+- **アロー関数（`=>`）は使用不可** — `function()` 構文を使うこと（eval と同じ制約）
+- 戻り値はシリアライズ可能な値にすること
