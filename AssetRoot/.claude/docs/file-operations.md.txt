@@ -26,12 +26,14 @@ playwright-cli eval "() => { var a = window.editor.assets.list().find(function(a
 **フォーマット**: 以下の見出し・キー形式を厳守する。値がない項目は行ごと省略可。
 
 ```markdown
-## PlayCanvas キャッシュ
+# PlayCanvasEditor キャッシュ
+
+## ID, トークン
 - projectId: 1234567
 - branchId: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 - accessToken: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
-## フォルダID キャッシュ
+## フォルダID
 - .claude/: 123456
 - .claude/commands/: 123457
 - .claude/docs/: 123458
