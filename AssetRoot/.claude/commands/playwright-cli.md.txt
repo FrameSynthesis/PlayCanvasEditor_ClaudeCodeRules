@@ -18,11 +18,11 @@ Browser automation CLI tool.
 
 ## Quick Start
 
-\`\`\`bash
+```bash
 playwright-cli open https://example.com/
 playwright-cli snapshot
 playwright-cli click e3
-\`\`\`
+```
 
 ## Core Workflow
 
@@ -33,53 +33,80 @@ playwright-cli click e3
 ## Commands
 
 ### Core
-\`\`\`bash
+```bash
 playwright-cli open <url>              # open url
 playwright-cli close                   # close the page
 playwright-cli click <ref>             # perform click
 playwright-cli fill <ref> <text>       # fill text
 playwright-cli type <text>             # type text
 playwright-cli snapshot                # capture page snapshot
-\`\`\`
+```
 
 playwright-cli screenshot [ref]で画像としてキャプチャ出来るが、APIエラーでチャットが継続不可になるエラーがあるため使用不可。代わりにsnapshotを使うこと。
 
 ### Sessions
-\`\`\`bash
+```bash
 playwright-cli --session=<name> open <url>  # open with named session
 playwright-cli session-stop-all             # stop all sessions
-\`\`\`
+```
 
 ### DevTools
-\`\`\`bash
+```bash
 playwright-cli tracing-start           # start trace recording
 playwright-cli tracing-stop            # stop trace recording
 playwright-cli console [min-level]     # list console messages
-\`\`\`
+```
 
 ## eval の注意事項
 
 `eval` は内部的に式を `() => (expr)` でラップして `page.evaluate()` に渡す。この仕組みに起因する制約がある。
 
-### アロー関数の禁止
+### `function()` の複雑なボディによるシリアライズエラー
 
-式の中に `=>` を含めると、ラッパーの `=>` と構文が競合し "not well-serializable" エラーになる。
-**`function()` 構文を使うこと。**
+`function()` コールバック内に `var` 宣言・`for` ループ・`if` 文など複数文を含めると、`() => (expr)` ラッパーとの組み合わせでシリアライザが正しく解析できず "not well-serializable" エラーになる。
 
-\`\`\`bash
-# NG: アロー関数
-playwright-cli eval "window.editor.assets.list().map(a => a.get('type'))"
+**シンプルな単一 return 文のみの `function()` は問題ない。**
+複雑なロジックが必要な場合は、式全体を `() =>` プレフィックス付きの関数形式にすること（後述の「`() =>` プレフィックスによる回避」参照）。
 
-# OK: function() 構文
-playwright-cli eval "window.editor.assets.list().map(function(a) { return a.get('type') })"
-\`\`\`
+```bash
+# OK: シンプルな function() コールバック（単一 return 文）
+playwright-cli eval "window.editor.assets.list().filter(function(a) { return a.get('type') === 'folder' }).map(function(a) { return { id: a.get('id'), name: a.get('name') } })"
+
+# NG: 複雑な function() ボディ（var, for, if を含む）
+playwright-cli eval "window.editor.assets.list().filter(function(a) { if (a.get('type') !== 'texture') return false; var p = a.get('path'); for (var i = 0; i < p.length; i++) { if (p[i] === 12345) return true; } return false; }).map(function(a) { return { id: a.get('id'), name: a.get('name') } })"
+# → "not well-serializable" エラー
+```
+
+### `() =>` プレフィックスによる回避
+
+式の先頭を `() =>` で始めると、eval は自動ラップせずそのまま `page.evaluate()` に渡す。
+この形式では**内部でアロー関数を含む複雑なロジックも動作する**。
+
+```bash
+# OK: () => プレフィックスで複雑なロジックを実行
+playwright-cli eval "() => window.editor.assets.list().filter(a => a.get('type') === 'texture').map(a => ({id: a.get('id'), name: a.get('name')}))"
+
+# OK: () => { ... } ブロック形式（var, for 等を含む）
+playwright-cli eval "() => { var r = []; var all = window.editor.assets.list(); for (var i = 0; i < all.length; i++) { if (all[i].get('type') === 'texture') r.push(all[i].get('id')); } return r; }"
+```
+
+### アロー関数の使用ルール（まとめ）
+
+| パターン | 結果 |
+|---|---|
+| 自動ラップ式（`() =>` なし）+ シンプル `function()` | OK |
+| 自動ラップ式 + 複雑な `function()` ボディ | NG（シリアライズエラー） |
+| `() =>` プレフィックス + 内部にアロー関数 | OK |
+| 自動ラップ式 + 内部にアロー関数（`() =>` なし） | NG（"result is not a function"） |
+
+**推奨**: 複雑なロジックは常に `() =>` プレフィックス形式を使う。シンプルな1行式は自動ラップ形式でも可。
 
 ### 非シリアライズ可能な戻り値
 
 PlayCanvasアセットオブジェクト等の循環参照を含むオブジェクトを返すと "Converting circular structure to JSON" や "not well-serializable" になる。
 **カンマ演算子で文字列を返す、またはプリミティブ値のみ返すようにする。**
 
-\`\`\`bash
+```bash
 # NG: 非シリアライズ可能なオブジェクトが返る
 playwright-cli eval "window.editor.assets.delete([window.editor.assets.get(12345)])"
 
@@ -88,14 +115,14 @@ playwright-cli eval "window.editor.assets.delete([window.editor.assets.get(12345
 
 # OK: プリミティブ値を返す
 playwright-cli eval "window.editor.assets.get(12345).get('name')"
-\`\`\`
+```
 
 ### 大きなデータの受け渡し
 
 長い文字列を eval に直接埋め込むと "not well-serializable" になることがある。
 **`localstorage-set` で事前に格納し、eval 内で `localStorage.getItem()` で読み出す。**
 
-\`\`\`bash
+```bash
 # 1. localStorageに格納
 playwright-cli localstorage-set "_mydata" "$(base64 -w0 /path/to/file)"
 
@@ -105,12 +132,57 @@ playwright-cli eval "decodeURIComponent(escape(atob(localStorage.getItem('_mydat
 # 3. window変数に展開してから利用
 playwright-cli eval "window._decoded = decodeURIComponent(escape(atob(localStorage.getItem('_mydata'))))"
 playwright-cli eval "window.editor.assets.createText({ name: 'file.md', text: window._decoded, folder: window.editor.assets.get(FOLDER_ID) }), 'done'"
-\`\`\`
+```
 
 ### 複数文の実行
 
 セミコロン区切りの複数文は動作しないことが多い。**単一式にまとめるか、カンマ演算子を使う。**
 中間変数が必要な場合は `window._varName` に格納して複数回の eval に分ける。
+
+### `indexOf` の使用禁止（Observer配列）
+
+PlayCanvas の Observer 配列（`a.get("path")` 等）に対して `indexOf()` を使うと "not well-serializable" エラーになる。
+**`for` ループで代替すること。**
+
+```bash
+# NG: indexOf()
+playwright-cli eval "list.filter(function(a) { return a.get('path').indexOf(12345) !== -1 })"
+
+# OK: for ループで代替
+playwright-cli eval "list.filter(function(a) { var p = a.get('path'); for (var i = 0; i < p.length; i++) { if (p[i] === 12345) return true; } return false; })"
+```
+
+### `forEach` の使用禁止
+
+`forEach` + セミコロン区切りで文字列を返すパターンは "not well-serializable" エラーになる。
+**`.map()` で副作用を実行し、`.length` 等のプリミティブ値を返すこと。**
+
+```bash
+# NG: forEach
+playwright-cli eval "[1,2,3].forEach(function(id) { window.editor.assets.get(id).set('preload', true) })"
+
+# OK: map + .length
+playwright-cli eval "[1,2,3].map(function(id) { window.editor.assets.get(id).set('preload', true); return id }).length"
+```
+
+### `find` / `continue` の使用禁止
+
+`Array.prototype.find()` および `continue` 文を使用すると "not well-serializable" エラーになる。
+シリアライザが一部のJavaScript構文を正しく扱えないことが原因。
+
+```bash
+# NG: find()
+playwright-cli eval "() => { var a = list.find(function(x) { return x.name === 'foo'; }); return a; }"
+
+# OK: for + break で代替
+playwright-cli eval "() => { var a = null; var list = items; for (var i = 0; i < list.length; i++) { if (list[i].name === 'foo') { a = list[i]; break; } } return a; }"
+
+# NG: continue
+playwright-cli eval "() => { for (var i = 0; i < arr.length; i++) { if (arr[i].skip) continue; /* ... */ } }"
+
+# OK: if ネストで代替
+playwright-cli eval "() => { for (var i = 0; i < arr.length; i++) { if (!arr[i].skip) { /* ... */ } } }"
+```
 
 ## run-code の使い方
 
@@ -119,10 +191,10 @@ playwright-cli eval "window.editor.assets.createText({ name: 'file.md', text: wi
 
 ### 基本構文
 
-\`\`\`bash
+```bash
 playwright-cli run-code "async function() { return await page.title() }"
 # → await (async function() { return await page.title() })(page)
-\`\`\`
+```
 
 ### eval との使い分け
 
@@ -133,7 +205,7 @@ playwright-cli run-code "async function() { return await page.title() }"
 
 ### eval ではできない run-code のユースケース
 
-\`\`\`bash
+```bash
 # 条件成立を待つ
 playwright-cli run-code "async function() { await page.waitForFunction(function() { return window.editor !== undefined }, { timeout: 5000 }); return 'ready' }"
 
@@ -142,7 +214,7 @@ playwright-cli run-code "async function() { var responsePromise = page.waitForRe
 
 # 複数ステップを順次実行
 playwright-cli run-code "async function() { var title = await page.title(); var count = await page.evaluate(function() { return window.editor.assets.list().length }); return title + ': ' + count + ' assets' }"
-\`\`\`
+```
 
 ### 注意事項
 - **`const`/`let` は使用不可** — `var` を使うこと
