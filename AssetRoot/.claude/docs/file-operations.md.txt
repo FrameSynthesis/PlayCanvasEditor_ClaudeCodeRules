@@ -3,6 +3,42 @@
 ## 一時ファイルのルール
 REST API PUTでアップロードする際の一時ファイル置き場は {local-tmp-dir} を使用すること。
 
+### 一時ファイルの命名規則
+
+**ファイル名の先頭にAssetIDを付与する**: `{assetId}_{file.filename}`
+
+```
+例: 278908008_playwright-cli.md.txt
+     ~~~~~~~~~ ~~~~~~~~~~~~~~~~~~~~~~
+     AssetID   file.filename（asset.get('file').filename の値）
+```
+
+**ワークフロー**:
+1. アップロード先のAssetIDと `file.filename` を先に取得する
+2. 一時ファイルを `{local-tmp-dir}/{assetId}_{file.filename}` に書き出す
+3. REST API PUT でアップロード
+
+```bash
+# 1. AssetIDとfile.filenameを取得
+playwright-cli eval "window.editor.assets.list().filter(function(a) { return a.get('name') === 'TARGET_NAME' }).map(function(a) { return a.get('id') + ' file=' + a.get('file').filename })"
+
+# 2. 一時ファイルを書き出す（Writeツール使用）
+#    → {local-tmp-dir}/278908008_playwright-cli.md.txt
+
+# 3. アップロード
+WINPATH=$(cygpath -w {local-tmp-dir}/278908008_playwright-cli.md.txt)
+curl -s -w "\n%{http_code}" -X PUT \
+  "https://playcanvas.com/api/assets/278908008" \
+  -H "Authorization: Bearer {token}" \
+  -F "branchId={branchId}" \
+  -F "file=@${WINPATH};filename=playwright-cli.md.txt"
+```
+
+**利点**:
+- ファイル名からAssetIDを即座に特定できる（再検索不要）
+- `file.filename` をそのまま使うため拡張子不一致エラーを防げる
+- 複数ファイルを同時に準備してもIDが混同しない
+
 ## 動的情報の取得
 
 ```bash
@@ -61,11 +97,11 @@ playwright-cli eval "() => { var a = window.editor.assets.list().find(function(a
 推奨方法。ファイル内容はバイナリ転送でトークン消費なし。
 
 ```bash
-# 1. 一時ファイルを {local-tmp-dir} に書き出す（Writeツール使用）
+# 1. 一時ファイルを {local-tmp-dir}/{assetId}_{file.filename} に書き出す（Writeツール使用）
 # 2. アップロード（branchId必須）
 curl -X PUT \
   -H "Authorization: Bearer {token}" \
-  -F 'file=@{local-tmp-dir}/{filename}' \
+  -F 'file=@{local-tmp-dir}/{assetId}_{file.filename};filename={file.filename}' \
   -F 'branchId={branchId}' \
   "https://playcanvas.com/api/assets/{assetId}"
 ```
@@ -93,6 +129,37 @@ curl -X POST \
 
 - 対応タイプ: script, html, css, text, shader, json
 - テキストファイル(.md等)をPOSTで作成すると Binary 扱いになる → テキストは `createText` を使うこと
+
+## mdファイルの新規作成ワークフロー
+
+REST API POSTで `.md` ファイルを作成すると `type: binary` になり、VSCode拡張の同期対象外になる。
+**必ず Editor API の `createText` で作成すること。**
+
+### 手順
+1. `createText` で空のテキストアセットを作成（`file.filename` は自動的に `.md.txt` になる）
+2. 作成されたアセットのIDと `file.filename` を取得
+3. 一時ファイルを `{local-tmp-dir}/{assetId}_{file.filename}` に書き出す（拡張子は `.md.txt`）
+4. REST API PUT で内容をアップロード
+
+```bash
+# 1. createText で空アセットを作成
+playwright-cli eval "window.editor.assets.createText({ name: 'new-file.md', text: ' ', folder: window.editor.assets.get(FOLDER_ID) }), 'done'"
+
+# 2. AssetIDとfile.filenameを取得
+playwright-cli eval "window.editor.assets.list().filter(function(a) { return a.get('name') === 'new-file.md' }).map(function(a) { return a.get('id') + ' file=' + a.get('file').filename })"
+# → 279202207 file=new-file.md.txt
+
+# 3. 一時ファイルを書き出す（拡張子 .md.txt で）
+#    → {local-tmp-dir}/279202207_new-file.md.txt
+
+# 4. REST API PUT でアップロード
+WINPATH=$(cygpath -w {local-tmp-dir}/279202207_new-file.md.txt)
+curl -s -w "\n%{http_code}" -X PUT \
+  "https://playcanvas.com/api/assets/279202207" \
+  -H "Authorization: Bearer {token}" \
+  -F "branchId={branchId}" \
+  -F "file=@${WINPATH};filename=new-file.md.txt"
+```
 
 ## Editor API（ブラウザ経由の操作）
 
