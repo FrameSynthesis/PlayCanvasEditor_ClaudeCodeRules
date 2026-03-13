@@ -120,6 +120,59 @@ entities.forEach(e => e.set('enabled', false));
 The editor uses PCUI framework. Custom extensions can use the same framework
 for visual consistency. PCUI docs: https://playcanvas.github.io/pcui/
 
+## `entity.set('components.script')` の落とし穴
+
+### 問題
+
+スクリプトコンポーネントを持つがスクリプトが未登録のエンティティに対し、深いパスで `set()` するとサーバー保存エラーが発生する。
+
+```js
+// NG: enabled と order が欠落
+e.set('components.script.scripts.UI_interactionUi', {
+    enabled: true,
+    attributes: { ... }
+});
+// → "Error while saving changes. Please refresh the editor."
+```
+
+### 原因
+
+PlayCanvas のスクリプトコンポーネントはサーバー側で以下の構造を要求する。`order` が欠けると OT（Operational Transform）のバリデーションで弾かれる。
+
+```json
+{
+  "enabled": true,
+  "order": ["scriptName"],
+  "scripts": {
+    "scriptName": { "enabled": true, "attributes": { ... } }
+  }
+}
+```
+
+`scripts.X` へのドット記法 `set()` では `order` が更新されないため、`scripts` と `order` が不整合になりエラーになる。
+
+### 解決策
+
+`components.script` を**丸ごと置き換える**。
+
+```js
+// OK: enabled + order + scripts を一括 set
+e.set('components.script', {
+    enabled: true,
+    order: ['UI_interactionUi'],
+    scripts: {
+        UI_interactionUi: {
+            enabled: true,
+            attributes: { viewDetailsButton: '...' }
+        }
+    }
+});
+```
+
+### 注意
+
+既存スクリプトがある場合（例: `UI_viewer` + `statueUiManager`）は、既存エントリを維持したまま `order` に追加すること。丸ごと置き換えると既存スクリプトが消える。
+
 ## Playwright-CLI でのEditor API操作
 ```bash
 # ブラウザ起動 (headed mode でログイン可能)
