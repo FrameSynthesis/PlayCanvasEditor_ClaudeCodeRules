@@ -6,6 +6,7 @@ allowed-tools: Bash
 # open-playcanvas-editor
 
 ログイン認証の為--headedで起動する
+URL指定がデフォルトのまま(???)だった場合、ユーザーにURLを尋ねたのちのこのファイルを書き換えること
 
 ## Quick Start
 

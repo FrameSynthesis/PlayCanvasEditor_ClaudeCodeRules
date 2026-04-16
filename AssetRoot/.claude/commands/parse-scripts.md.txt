@@ -1,0 +1,42 @@
+---
+description: 直近でClaudeが編集したスクリプトのうちパースが必要なものをパースする
+allowed-tools: Bash
+---
+
+# parse-scripts
+
+## ARGUMENTS: スクリプト名（省略可、スペース区切りで複数指定可）
+
+例: `/parse-scripts BH_example.mjs BH_other.mjs`
+
+## 対象の決定
+
+### 引数ありの場合
+指定されたスクリプトをパースする。
+
+### 引数なしの場合
+直近の会話で Claude が編集したスクリプトを振り返り、以下に該当するものを対象とする:
+
+1. **新規作成したスクリプト** — エンティティにアタッチする前にパースが必要
+2. **attribute パラメータに変更があったスクリプト** — `@attribute` の追加・削除・型変更・デフォルト値変更など
+
+単なるロジック変更のみのスクリプトはパース不要なので対象外とする。
+
+該当するスクリプトがない場合は「パースが必要なスクリプトはありません」と報告して終了する。
+
+## 実行コマンド
+
+```bash
+# スクリプトアセットを名前で検索してパース
+playwright-cli eval "() => { var a = window.editor.assets.list().find(function(a) { return a.get('name') === 'SCRIPT_NAME'; }); if (!a) return 'not found: SCRIPT_NAME'; return window.editor.assets.parseScriptCallback(a).then(function(r) { return JSON.stringify(r); }); }"
+```
+
+複数スクリプトが対象の場合は1回の eval でまとめて実行する:
+
+```bash
+playwright-cli eval "() => { var names = ['NAME1','NAME2']; var scripts = names.map(function(n) { return window.editor.assets.list().find(function(a) { return a.get('name') === n; }); }); var missing = names.filter(function(n,i) { return !scripts[i]; }); if (missing.length) return 'not found: ' + missing.join(', '); return Promise.all(scripts.map(function(a) { return window.editor.assets.parseScriptCallback(a).then(function(r) { return { name: a.get('name'), result: r }; }).catch(function(e) { return { name: a.get('name'), error: e.message || String(e) }; }); })).then(function(results) { return JSON.stringify(results); }); }"
+```
+
+## 結果の確認
+- パース成功時: スクリプト名の配列が返る（例: `["BH_example"]`）
+- パース失敗時: エラー内容を報告し、スクリプトの構文エラーを確認するよう案内する
