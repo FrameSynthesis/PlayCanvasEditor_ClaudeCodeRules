@@ -1,0 +1,38 @@
+---
+description: Launch画面でテクスチャのVRAM使用量を一覧表示する
+allowed-tools: Bash
+---
+
+# texture-vram
+
+Launch画面（実行中のアプリケーション）でロード済みテクスチャのVRAM使用量を取得し、降順で一覧表示する。
+
+## 前提条件
+- PlayCanvas EditorからLaunchでアプリケーションを実行中であること
+
+## 手順
+
+### 1. Launch タブに切り替える
+
+```bash
+# タブ一覧を確認し、Launch ページ（launch.playcanvas.com）のタブを特定
+playwright-cli tab-list
+
+# Launch タブに切り替え（インデックスは tab-list の結果に合わせる）
+playwright-cli tab-select <tab-index>
+```
+
+### 2. VRAM情報を取得
+
+`pc.app.assets.filter` のコールバックは単一return文に留め、集計ロジックは `() =>` ブロック内で行う。
+
+```bash
+playwright-cli eval "() => { var textures = []; var totalVramBytes = 0; var loaded = pc.app.assets.filter(function(a) { return a.type === 'texture' && a.resource && a.resource._gpuSize; }); for (var i = 0; i < loaded.length; i++) { var asset = loaded[i]; var size = asset.resource._gpuSize; totalVramBytes += size; textures.push({ name: asset.name, vramMB: parseFloat((size / (1024 * 1024)).toFixed(2)), width: asset.resource.width, height: asset.resource.height }); } textures.sort(function(a, b) { return b.vramMB - a.vramMB; }); return JSON.stringify({ totalMB: parseFloat((totalVramBytes / (1024 * 1024)).toFixed(2)), count: textures.length, textures: textures }); }"
+```
+
+### 3. 結果を表示
+
+取得したJSONをパースし、以下の形式で報告する：
+
+- トータルVRAM使用量（MB）とテクスチャ数
+- テクスチャ一覧テーブル（VRAM降順）：Asset Name / VRAM (MB) / Width / Height
